@@ -49,12 +49,13 @@ jobs:
           # Konfiguration kopieren und die beiden zur Bau-/Laufzeit erzeugten Dateien ergänzen.
           cp -r einsatzauftrag/rootfs/etc/nginx nginx-test
           echo 'add_header Content-Security-Policy "default-src '"'"'self'"'"'" always;' > nginx-test/snippets/csp.conf
-          mkdir -p zugriff www
+          mkdir -p zugriff www run-nginx
           echo "allow all;" > zugriff/zugriff.conf
           # Nur eigene Dateien einhängen, mime.types liefert das nginx-Image.
           docker run --rm \
             -v "$PWD/nginx-test/nginx.conf:/etc/nginx/nginx.conf:ro" \
             -v "$PWD/nginx-test/snippets:/etc/nginx/snippets:ro" \
             -v "$PWD/zugriff/zugriff.conf:/run/zugriff.conf:ro" \
+            -v "$PWD/run-nginx:/run/nginx" \
             -v "$PWD/www:/var/www/einsatzauftrag:ro" \
             nginx:alpine nginx -t
