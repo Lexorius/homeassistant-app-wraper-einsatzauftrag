@@ -61,7 +61,8 @@ profile einsatzauftrag flags=(attach_disconnected,mediate_deleted) {
     # Statische Dateien der App: nur lesen
     /var/www/einsatzauftrag/** r,
 
-    # Laufzeit: pid-Datei, Zugriffsregel von run.sh, Temp-Dateien
+    # Laufzeit: Zugriffsregel von run.sh, pid-Datei, Temp-Dateien
+    /run/zugriff.conf r,
     /run/nginx/ r,
     /run/nginx/** rwk,
     /var/lib/nginx/ r,

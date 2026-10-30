@@ -4,11 +4,14 @@
 set -eu
 
 LAUFZEIT=/run/nginx
-ZUGRIFF="${LAUFZEIT}/zugriff.conf"
+# Die Zugriffsregel liegt direkt in /run (gehört root), nicht in /run/nginx:
+# Das Verzeichnis gehört dem Nutzer nginx, und ohne CAP_DAC_OVERRIDE – die das
+# AppArmor-Profil bewusst nicht gewährt – darf root dort nichts anlegen.
+ZUGRIFF=/run/zugriff.conf
 
-# /run ist unter Home Assistant und bei read_only-Containern ein tmpfs.
+# /run/nginx (pid-Datei) existiert aus dem Paket oder wird hier angelegt.
 # /var/lib/nginx/tmp gehört bereits dem Nutzer nginx (Paket bzw. tmpfs aus
-# docker-compose) und wird hier bewusst nicht angefasst: ohne CAP_DAC_OVERRIDE
+# docker-compose) und wird bewusst nicht angefasst: ohne CAP_DAC_OVERRIDE
 # darf root ein fremdes 700-Verzeichnis nicht einmal lesen.
 mkdir -p "${LAUFZEIT}"
 
@@ -37,6 +40,7 @@ fi
 # Nur chown (CAP_CHOWN), kein chmod: das bräuchte CAP_FOWNER, sobald das
 # Verzeichnis nginx gehört – und so wenig Capabilities wie möglich ist das Ziel.
 chown -R nginx:nginx "${LAUFZEIT}"
+chmod 644 "${ZUGRIFF}"
 
 # Rechte abgeben: Master- und Worker-Prozesse laufen als „nginx“ (uid 100).
 # -e stderr: Fehlerprotokoll auf stderr, bevor die Konfiguration gelesen ist.

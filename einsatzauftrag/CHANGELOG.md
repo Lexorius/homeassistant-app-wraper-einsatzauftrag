@@ -3,6 +3,16 @@
 Alle nennenswerten Änderungen an der Add-on-Verpackung. Änderungen an der App selbst
 stehen im [Original-Repository](https://github.com/wattnpapa/einsatzauftrag).
 
+## 1.1.1 - 2026-10-31
+
+### Behoben
+
+- Start unter Home Assistant schlug in 1.1.0 fehl: `run.sh` konnte die Zugriffsregel
+  nicht in `/run/nginx` anlegen, weil das Verzeichnis dem Nutzer `nginx` gehört und das
+  AppArmor-Profil root bewusst kein `CAP_DAC_OVERRIDE` gibt. Die Regel liegt jetzt als
+  `/run/zugriff.conf` direkt in `/run`; damit startet die App ohne zusätzliche
+  Capability, auch nach einem Neustart des Containers.
+
 ## 1.1.0 - 2026-10-31
 
 ### Sicherheit
