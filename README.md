@@ -39,8 +39,29 @@ nicht mehr unterstützt).
 
 ## Standalone mit Docker (ohne Home Assistant)
 
-Das Dockerfile funktioniert auch ohne Supervisor. Erkennt es keinen Home Assistant
-(Umgebungsvariable `SUPERVISOR_TOKEN` fehlt), lässt nginx den Zugriff für alle Adressen zu:
+Das Image funktioniert auch ohne Supervisor. Erkennt es keinen Home Assistant
+(Umgebungsvariable `SUPERVISOR_TOKEN` fehlt), lässt nginx den Zugriff für alle Adressen zu.
+
+**Empfohlen: Compose mit dem fertigen Image von GHCR**
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+Danach ist die App unter <http://localhost:8099/> erreichbar. Die
+[docker-compose.yml](docker-compose.yml) startet den Container gehärtet: schreibgeschütztes
+Dateisystem, alle Capabilities bis auf die vier für den Nutzerwechsel entfernt,
+`no-new-privileges`, Prozess- und Speicherlimit. Soll die App aus dem Internet erreichbar sein,
+gehört ein Reverse-Proxy mit TLS davor; dann in der Compose-Datei nur lokal binden
+(`127.0.0.1:8099:8099`).
+
+**Selbst bauen** (holt den aktuellen Stand aus dem Original-Repository):
+
+```bash
+docker compose --profile build up -d --build
+```
+
+Oder ohne Compose:
 
 ```bash
 docker build -t einsatzauftrag einsatzauftrag/
@@ -50,22 +71,44 @@ docker build -t einsatzauftrag einsatzauftrag/
 docker run --rm -p 8099:8099 einsatzauftrag
 ```
 
-Danach ist die App unter <http://localhost:8099/> erreichbar.
-
-Oder mit Compose:
-
-```bash
-docker compose up --build
-```
-
 ### Build-Argumente
 
 | Argument              | Standard                                          | Bedeutung |
 |-----------------------|---------------------------------------------------|-----------|
 | `EINSATZAUFTRAG_REPO` | `https://github.com/wattnpapa/einsatzauftrag.git` | Quell-Repository der App |
 | `EINSATZAUFTRAG_REF`  | `main`                                            | Branch, Tag oder Commit, der gebaut wird |
-| `ENTFERNE_ZAEHLER`    | `true`                                            | Entfernt den externen GoatCounter-Zähler aus `index.html` |
+| `ENTFERNE_ZAEHLER`    | `true`                                            | Entfernt den externen GoatCounter-Zähler aus allen Seiten |
+| `AUDIT_STUFE`         | `high`                                            | Bau bricht ab, wenn `npm audit` in den Laufzeit-Abhängigkeiten eine Lücke ab dieser Stufe meldet (leer = nicht prüfen) |
 | `BUILD_FROM`          | `ghcr.io/home-assistant/base:3.23`                | Basisimage der Laufzeit-Stufe (Multi-Arch) |
+
+## Sicherheit
+
+Die App selbst verarbeitet alles im Browser; der Container liefert nur statische Dateien aus.
+Was die Verpackung dafür tut:
+
+- **Aktualität:** Basisimages sind bewegliche Tags und werden bei jedem Bau frisch gezogen,
+  `apk upgrade` holt Alpine-Fixes, die App-Abhängigkeiten kommen exakt aus dem Lockfile des
+  Original-Repos und werden mit `npm audit` geprüft. Ein Image ist aber immer nur so aktuell
+  wie sein letzter Bau. Deshalb scannt der Workflow [Sicherheit](.github/workflows/sicherheit.yaml)
+  jeden Bau mit Trivy und wöchentlich das veröffentlichte Image; findet er Lücken mit
+  verfügbarem Fix, öffnet er ein Issue. Dann Version erhöhen und neu bauen.
+- **Minimales Image:** Nicht benötigte Werkzeuge des Basisimages (`tempio`, `jeprof`, `bashio`,
+  `curl`, `jq`, `dig`) werden entfernt. Trivy meldet für das Image 0 Funde.
+- **Unprivilegiert:** nginx läuft als Nutzer `nginx`, nicht als root; das Root-Dateisystem
+  kann schreibgeschützt sein.
+- **Zugriff:** In Home Assistant akzeptiert nginx nur Verbindungen vom Ingress-Proxy des
+  Supervisors; die Anmeldung übernimmt Home Assistant. Ein AppArmor-Profil
+  ([apparmor.txt](einsatzauftrag/apparmor.txt)) begrenzt den Container zusätzlich.
+- **Browser-Seite:** Strenge Content-Security-Policy ohne `unsafe-inline` (Hashes werden beim
+  Bau berechnet), `nosniff`, `no-referrer`, `Permissions-Policy`, nur `GET`/`HEAD`. Der
+  externe Besucherzähler der Original-App ist entfernt, die App spricht mit keinem Server.
+- **Lieferkette:** Install-Skripte fremder npm-Pakete werden nicht ausgeführt, alle GitHub
+  Actions sind auf Commit-SHAs gepinnt, Dependabot hält Actions und Basisimages aktuell,
+  Images werden mit Cosign signiert.
+
+Bekannt und bewusst offen: `npm audit` meldet in den *Entwicklungs*-Abhängigkeiten von
+Upstream eine moderate Lücke in `uuid` (über `exceljs`). Sie betrifft Funktionen, die die
+App nicht nutzt, und liegt im Original-Repository; sie wird dort gelöst, sobald `exceljs` nachzieht.
 
 Beispiel, einen festen Stand der App bauen:
 
@@ -77,21 +120,27 @@ docker build --build-arg EINSATZAUFTRAG_REF=v1.0.0 -t einsatzauftrag einsatzauft
 
 ```
 repository.yaml               Add-on-Repository für Home Assistant
-docker-compose.yml            Standalone-Betrieb
+docker-compose.yml            Standalone-Betrieb (gehärtet; Image von GHCR oder --profile build)
 einsatzauftrag/
 ├── config.yaml               App-Metadaten, Ingress, Seitenleisten-Panel
-├── Dockerfile                Stufe 1: Clone + Vite-Build, Stufe 2: nginx
-├── zaehler-entfernen.mjs     Entfernt den Analytics-Zähler aus dem Build
+├── Dockerfile                Stufe 1: Clone + Audit + Vite-Build, Stufe 2: nginx (gehärtet)
+├── nachbearbeiten.mjs        Entfernt den Zähler, berechnet CSP-Hashes für nginx
+├── apparmor.txt              AppArmor-Profil (s6 + Unterprofil nginx)
 ├── rootfs/
-│   ├── run.sh                Start: Zugriffsregel setzen, nginx starten
-│   └── etc/nginx/nginx.conf  Statische Auslieferung auf Port 8099
+│   ├── run.sh                Start: Zugriffsregel setzen, zu Nutzer nginx wechseln
+│   └── etc/nginx/
+│       ├── nginx.conf        Statische Auslieferung auf Port 8099, nur GET/HEAD
+│       └── snippets/sicherheit.conf   Sicherheits-Header (CSP kommt aus dem Bau)
 ├── DOCS.md                   Doku im Add-on-Store
 ├── CHANGELOG.md
 ├── icon.png, logo.png
 └── README.md
-.github/workflows/
-├── builder.yaml              Build (amd64, aarch64) → ghcr.io/lexorius/app-einsatzauftrag
-└── lint.yaml                 Add-on-Linter, ShellCheck, Hadolint
+.github/
+├── dependabot.yml            Actions und Basisimages aktuell halten
+└── workflows/
+    ├── builder.yaml          Build (amd64, aarch64) → ghcr.io/lexorius/app-einsatzauftrag
+    ├── sicherheit.yaml       Trivy: jeder Bau + wöchentlich das veröffentlichte Image
+    └── lint.yaml             Add-on-Linter, ShellCheck, Hadolint, nginx -t
 ```
 
 ## Release

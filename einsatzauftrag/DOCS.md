@@ -32,6 +32,17 @@ Bauzeit und Commit des App-Stands.
 Abweichend vom Original ist der externe Besucherzähler (GoatCounter, `gc.zgo.at`) aus
 der Startseite entfernt, damit die App im Heimnetz nichts nach außen meldet.
 
+## Sicherheit
+
+- nginx liefert nur statische Dateien aus, läuft als unprivilegierter Nutzer und nimmt in
+  Home Assistant ausschließlich Verbindungen vom Ingress-Proxy an. Nur `GET`/`HEAD`.
+- Strenge Content-Security-Policy und weitere Sicherheits-Header; die App lädt nichts von
+  fremden Servern (der Besucherzähler des Originals ist entfernt).
+- Ein AppArmor-Profil begrenzt den Container, nicht benötigte Werkzeuge des Basisimages
+  sind entfernt. Jeder Bau wird mit Trivy geprüft, das veröffentlichte Image wöchentlich.
+- Die App braucht keinen Zugriff auf Home-Assistant-APIs, Hardware, Netzwerk des Hosts
+  oder Verzeichnisse. Ein Update erscheint im Add-on-Store, sobald eine neue Version gebaut ist.
+
 ## Offline-Nutzung
 
 Die App bringt einen Service Worker mit, der sie nach dem ersten Laden im Browser

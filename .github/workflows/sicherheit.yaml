@@ -1,0 +1,136 @@
+# Sicherheitsprüfungen
+#
+# 1. Bei jeder Änderung: Image lokal bauen und mit Trivy auf bekannte Lücken prüfen
+#    (HIGH/CRITICAL mit verfügbarem Fix → Fehler). Ergebnis landet zusätzlich als
+#    SARIF unter „Security → Code scanning“.
+# 2. Wöchentlich: das veröffentlichte Image auf GHCR scannen. Finden sich neue
+#    Lücken (Alpine/nginx/Node-Pakete), wird ein Issue geöffnet – dann Version in
+#    config.yaml erhöhen und neu bauen, denn das Image ist nur so aktuell wie sein Bau.
+name: Sicherheit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "einsatzauftrag/**"
+      - ".github/workflows/sicherheit.yaml"
+  pull_request:
+    paths:
+      - "einsatzauftrag/**"
+      - ".github/workflows/sicherheit.yaml"
+  schedule:
+    - cron: "17 5 * * 1"   # montags 05:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  APP_DIR: einsatzauftrag
+  IMAGE: ghcr.io/lexorius/app-einsatzauftrag
+
+jobs:
+  bau-scan:
+    name: Frischen Bau mit Trivy prüfen
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - name: Image bauen (amd64, ohne Push)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: ${{ env.APP_DIR }}
+          load: true
+          pull: true
+          push: false
+          tags: einsatzauftrag:scan
+          cache-from: type=gha,scope=sicherheit
+          cache-to: type=gha,mode=max,scope=sicherheit
+
+      - name: Trivy – SARIF für Code scanning
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: einsatzauftrag:scan
+          scanners: vuln,secret,misconfig
+          format: sarif
+          output: trivy.sarif
+          severity: MEDIUM,HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+
+      - name: SARIF hochladen
+        if: always() && github.event_name != 'pull_request'
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
+        with:
+          sarif_file: trivy.sarif
+          category: trivy-image
+
+      - name: Trivy – Bau abbrechen bei HIGH/CRITICAL mit Fix
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: einsatzauftrag:scan
+          scanners: vuln,secret
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          skip-setup-trivy: true
+
+  veroeffentlicht-scan:
+    name: Veröffentlichtes Image prüfen
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Trivy gegen ${{ env.IMAGE }}:latest
+        id: trivy
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}:latest
+          scanners: vuln
+          format: table
+          output: trivy-veroeffentlicht.txt
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Issue öffnen oder aktualisieren
+        if: steps.trivy.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          {
+            echo "Der wöchentliche Trivy-Scan hat im veröffentlichten Image \`${IMAGE}:latest\` Lücken mit verfügbarem Fix gefunden."
+            echo
+            echo "**Abhilfe:** Version in \`einsatzauftrag/config.yaml\` erhöhen, CHANGELOG ergänzen, pushen. Der Neubau zieht aktuelle Basisimages und Pakete."
+            echo
+            echo "Lauf: ${GITHUB_SERVER_URL}/${GH_REPO}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            echo '```'
+            cat trivy-veroeffentlicht.txt
+            echo '```'
+          } > issue.md
+
+          gh label create sicherheit --description "Sicherheitslücke im Image" --color d73a4a 2>/dev/null || true
+          nummer=$(gh issue list --label sicherheit --state open --json number --jq '.[0].number')
+          if [ -n "${nummer}" ]; then
+            gh issue comment "${nummer}" --body-file issue.md
+          else
+            gh issue create --title "Sicherheitslücken im veröffentlichten Image – Neubau nötig" \
+              --label sicherheit --body-file issue.md
+          fi
+
+      - name: Scan fehlgeschlagen melden
+        if: steps.trivy.outcome == 'failure'
+        run: |
+          echo "::error::Das veröffentlichte Image enthält Lücken mit Fix – siehe Issue."
+          exit 1

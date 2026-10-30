@@ -1,4 +1,4 @@
-# Nur rootfs/ und zaehler-entfernen.mjs werden ins Image kopiert.
+# Nur rootfs/ und nachbearbeiten.mjs werden ins Image kopiert.
 *
 !rootfs
-!zaehler-entfernen.mjs
+!nachbearbeiten.mjs

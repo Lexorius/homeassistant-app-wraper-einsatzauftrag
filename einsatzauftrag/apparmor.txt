@@ -1,0 +1,78 @@
+#include <tunables/global>
+
+# AppArmor-Profil der App „Einsatzauftrag“. Der Profilname muss dem Slug entsprechen.
+# Aufbau nach der Vorlage von home-assistant/apps-example: Hauptprofil für s6-overlay
+# und run.sh, Unterprofil für nginx mit nur dem, was ein statischer Webserver braucht.
+profile einsatzauftrag flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  # Capabilities: run.sh legt /run/nginx an und übergibt es dem Nutzer nginx,
+  # su-exec wechselt zu diesem Nutzer, s6 beendet nginx (fremde uid) per Signal.
+  capability chown,
+  capability setuid,
+  capability setgid,
+  capability kill,
+  file,
+  signal (send) set=(kill,term,int,hup,cont),
+
+  # S6-Overlay
+  /init ix,
+  /bin/** ix,
+  /usr/bin/** ix,
+  /run/{s6,s6-rc*,service}/** ix,
+  /package/** ix,
+  /command/** ix,
+  /etc/services.d/** rwix,
+  /etc/cont-init.d/** rwix,
+  /etc/cont-finish.d/** rwix,
+  /run/{,**} rwk,
+  /dev/tty rw,
+  /tmp/** rwk,
+
+  # Startskript und Nutzerwechsel
+  /run.sh ix,
+  /sbin/su-exec ix,
+
+  # nginx läuft in einem eigenen, engeren Profil
+  /usr/sbin/nginx cx -> nginx,
+
+  profile nginx flags=(attach_disconnected,mediate_deleted) {
+    #include <abstractions/base>
+
+    # Signale von s6-overlay (Stoppen/Neustart)
+    signal (receive) peer=*_einsatzauftrag,
+    signal (receive) peer=einsatzauftrag,
+    # Master-Prozess steuert die Worker
+    signal (send,receive) peer=einsatzauftrag//nginx,
+    signal (send,receive) peer=*_einsatzauftrag//nginx,
+
+    # Nur HTTP auf dem Ingress-Port, keine ausgehenden Verbindungen nötig
+    network inet stream,
+    network inet6 stream,
+
+    /usr/sbin/nginx mr,
+    /etc/nginx/** r,
+    /etc/passwd r,
+    /etc/group r,
+    /etc/hosts r,
+    /etc/localtime r,
+    /usr/share/zoneinfo/** r,
+
+    # Statische Dateien der App: nur lesen
+    /var/www/einsatzauftrag/** r,
+
+    # Laufzeit: pid-Datei, Zugriffsregel von run.sh, Temp-Dateien
+    /run/nginx/ r,
+    /run/nginx/** rwk,
+    /var/lib/nginx/ r,
+    /var/lib/nginx/** rwk,
+    /var/log/nginx/** rw,
+    /tmp/** rwk,
+
+    # Protokolle auf stdout/stderr
+    /dev/stdout w,
+    /dev/stderr w,
+    /dev/pts/* rw,
+    /dev/tty rw,
+  }
+}

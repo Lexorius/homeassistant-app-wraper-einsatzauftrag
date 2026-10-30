@@ -2,7 +2,7 @@
 # https://contributors.home-assistant.io/apps/reference/configuration/
 # Nur Abweichungen von den Standardwerten eintragen (Vorgabe des Add-on-Linters).
 name: Einsatzauftrag
-version: "1.0.0"
+version: "1.1.0"
 slug: einsatzauftrag
 description: >-
   Einsatzauftrag (Fb Fü 3) als PDF ausfüllen – einzeln oder aus Excel/CSV.

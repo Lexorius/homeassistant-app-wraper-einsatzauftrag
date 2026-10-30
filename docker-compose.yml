@@ -1,16 +1,63 @@
-# Standalone-Betrieb ohne Home Assistant:
-#   docker compose up --build
-#   → http://localhost:8099/
+# Einsatzauftrag ohne Home Assistant betreiben.
+#
+#   Fertiges Image von GHCR (empfohlen):
+#       docker compose pull && docker compose up -d
+#       → http://localhost:8099/
+#
+#   Selbst aus dem Original-Repository bauen:
+#       docker compose --profile build up -d --build
+#
+# Der Container läuft gehärtet: schreibgeschütztes Dateisystem, nur die drei
+# Capabilities, die s6/su-exec zum Wechsel auf den Nutzer „nginx“ brauchen,
+# keine Rechteausweitung, Prozess- und Speicherlimit.
+
+x-gehaertet: &gehaertet
+  restart: unless-stopped
+  ports:
+    # Hinter einem Reverse-Proxy (mit TLS) besser nur lokal binden: "127.0.0.1:8099:8099"
+    - "8099:8099"
+  environment:
+    # s6-overlay kopiert bei schreibgeschütztem Root alles Nötige nach /run.
+    S6_READ_ONLY_ROOT: "1"
+  read_only: true
+  tmpfs:
+    # exec: s6-overlay legt seine Programme unter /run ab (Docker mountet tmpfs sonst noexec)
+    - /run:exec,mode=755
+    - /tmp:mode=1777
+    - /var/lib/nginx/tmp:uid=100,gid=101,mode=700
+  cap_drop:
+    - ALL
+  cap_add:
+    - CHOWN    # run.sh übergibt /run/nginx an den Nutzer nginx
+    - SETUID   # su-exec wechselt zu nginx
+    - SETGID
+    - KILL     # s6 beendet nginx (andere uid) beim Stoppen
+  security_opt:
+    - no-new-privileges:true
+  pids_limit: 64
+  mem_limit: 128m
+  logging:
+    driver: json-file
+    options:
+      max-size: "5m"
+      max-file: "3"
+
 services:
   einsatzauftrag:
+    <<: *gehaertet
+    image: ghcr.io/lexorius/app-einsatzauftrag:latest
+    container_name: einsatzauftrag
+    pull_policy: always
+
+  einsatzauftrag-build:
+    <<: *gehaertet
+    profiles: [build]
+    image: einsatzauftrag:local
+    container_name: einsatzauftrag-build
     build:
       context: ./einsatzauftrag
       args:
         # Stand der App, der gebaut wird (Branch, Tag oder Commit).
         EINSATZAUFTRAG_REF: main
         ENTFERNE_ZAEHLER: "true"
-    image: einsatzauftrag:local
-    container_name: einsatzauftrag
-    restart: unless-stopped
-    ports:
-      - "8099:8099"
+        AUDIT_STUFE: high

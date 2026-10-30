@@ -10,6 +10,12 @@
 #   2. Das fertige, rein statische Ergebnis (dist-web/) wird mit nginx auf dem
 #      Home-Assistant-Basisimage ausgeliefert – erreichbar über Ingress.
 #
+# Aktualität/Sicherheit: Alle Basisimages sind bewegliche Tags und werden bei jedem
+# Bau neu gezogen (CI: pull=true). Die Alpine-Pakete werden beim Bau auf den neuesten
+# Stand gebracht, die App-Abhängigkeiten kommen exakt aus dem Upstream-Lockfile und
+# werden mit „npm audit“ geprüft. Das Image ist nur so aktuell wie sein letzter Bau –
+# der wöchentliche Scan (.github/workflows/sicherheit.yaml) meldet, wenn ein Neubau nötig ist.
+#
 # Standalone (ohne Home Assistant):
 #   docker build -t einsatzauftrag einsatzauftrag/
 #   docker run --rm -p 8099:8099 einsatzauftrag   → http://localhost:8099/
@@ -27,9 +33,12 @@ FROM --platform=$BUILDPLATFORM node:22-alpine AS build
 # Quelle der App. REF kann ein Branch, Tag oder Commit sein.
 ARG EINSATZAUFTRAG_REPO=https://github.com/wattnpapa/einsatzauftrag.git
 ARG EINSATZAUFTRAG_REF=main
-# GoatCounter-Zähler (gc.zgo.at) aus der Startseite entfernen: Im Heimnetz
+# GoatCounter-Zähler (gc.zgo.at) aus den Seiten entfernen: Im Heimnetz
 # hinter Home Assistant soll die App nichts nach außen melden.
 ARG ENTFERNE_ZAEHLER=true
+# Bau abbrechen, wenn „npm audit“ in den Laufzeit-Abhängigkeiten der App eine
+# Lücke ab dieser Stufe meldet (low, moderate, high, critical; leer = nicht prüfen).
+ARG AUDIT_STUFE=high
 
 RUN apk add --no-cache git
 
@@ -37,16 +46,15 @@ WORKDIR /src
 RUN git clone --depth 1 --branch "${EINSATZAUFTRAG_REF}" "${EINSATZAUFTRAG_REPO}" . \
     && echo "Baue einsatzauftrag @ $(git rev-parse --short HEAD) (${EINSATZAUFTRAG_REF})"
 
-# „npm ci“ führt per prepare-Skript auch den Bibliotheks-Build (tsc) aus,
-# die Quellen dafür liegen durch den Clone bereits vor.
-RUN npm ci \
+# Exakt die Versionen aus dem Upstream-Lockfile, ohne Install-Skripte fremder
+# Pakete auszuführen (Lieferketten-Schutz; der Vite-Build braucht sie nicht).
+RUN npm ci --ignore-scripts \
+    && if [ -n "${AUDIT_STUFE}" ]; then npm audit --omit=dev --audit-level="${AUDIT_STUFE}"; fi \
     && npm run web:build
 
-# Den extern geladenen Zähler aus dem gebauten index.html entfernen.
-COPY zaehler-entfernen.mjs /tmp/zaehler-entfernen.mjs
-RUN if [ "${ENTFERNE_ZAEHLER}" = "true" ]; then \
-        node /tmp/zaehler-entfernen.mjs dist-web/index.html; \
-    fi
+# Zähler entfernen und CSP-Hashes der Inline-Blöcke für nginx berechnen.
+COPY nachbearbeiten.mjs /tmp/nachbearbeiten.mjs
+RUN node /tmp/nachbearbeiten.mjs dist-web /src/csp.conf "${ENTFERNE_ZAEHLER}"
 
 # ---------------------------------------------------------------------------
 # Stufe 2: Auslieferung mit nginx
@@ -54,13 +62,23 @@ RUN if [ "${ENTFERNE_ZAEHLER}" = "true" ]; then \
 # hadolint ignore=DL3006
 FROM ${BUILD_FROM}
 
-RUN apk add --no-cache nginx \
-    && rm -rf /etc/nginx/http.d /var/www/localhost
+# - Alpine-Pakete auf den neuesten Stand (Sicherheitsfixes, die jünger sind als das Basisimage)
+# - nginx und su-exec (Wechsel zum unprivilegierten Nutzer „nginx“)
+# - Nicht benötigte Werkzeuge des Basisimages entfernen: tempio (Go-Binary mit
+#   bekannten CVEs), jeprof, bashio, curl, jq, dig – diese App braucht davon nichts.
+RUN apk upgrade --no-cache \
+    && apk add --no-cache nginx su-exec \
+    && apk del --no-cache curl jq bind-tools \
+    && rm -rf /usr/bin/tempio /usr/local/bin/jeprof /usr/lib/bashio \
+              /etc/nginx/http.d /var/www/localhost /var/lib/nginx/html \
+              /var/cache/apk/*
 
 COPY rootfs /
 COPY --from=build /src/dist-web /var/www/einsatzauftrag
+COPY --from=build /src/csp.conf /etc/nginx/snippets/csp.conf
 
-RUN chmod +x /run.sh
+RUN chmod +x /run.sh \
+    && chmod -R a+rX,go-w /var/www/einsatzauftrag /etc/nginx
 
 # Ingress-Port, siehe config.yaml (ingress_port). Wird nicht nach außen
 # veröffentlicht, der Supervisor spricht ihn im internen Netz an.

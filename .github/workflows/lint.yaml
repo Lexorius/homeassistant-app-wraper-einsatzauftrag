@@ -1,4 +1,4 @@
-# Prüft die Add-on-Konfiguration (config.yaml, build.yaml) und die Shell-Skripte.
+# Prüft die App-Konfiguration (config.yaml), die Shell-Skripte und das Dockerfile.
 name: Prüfen
 
 on:
@@ -7,13 +7,16 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   addon-lint:
     name: Add-on-Linter
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: frenck/action-addon-linter@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: frenck/action-addon-linter@b9cfd1bc62ba60d2c4fc96317b5f7ada5923f4a7 # v2.21.1
         with:
           path: ./einsatzauftrag
 
@@ -21,17 +24,34 @@ jobs:
     name: ShellCheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: shellcheck einsatzauftrag/rootfs/run.sh
 
   hadolint:
     name: Hadolint (Dockerfile)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: hadolint/hadolint-action@v3.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
         with:
           dockerfile: einsatzauftrag/Dockerfile
-          # DL3018: apk-Pakete ohne feste Version – Basisimage ist versioniert, das reicht hier.
+          # DL3018: apk-Pakete ohne feste Version – Basisimage ist versioniert, apk upgrade ist Absicht.
           # DL3029: --platform in FROM ist hier Absicht (Build-Stufe nativ, Ergebnis statisch).
           ignore: DL3018,DL3029
+
+  nginx-syntax:
+    name: nginx-Konfiguration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Konfiguration mit nginx -t prüfen
+        run: |
+          mkdir -p csp zugriff www
+          echo 'add_header Content-Security-Policy "default-src '"'"'self'"'"'" always;' > csp/csp.conf
+          echo "allow all;" > zugriff/zugriff.conf
+          docker run --rm \
+            -v "$PWD/einsatzauftrag/rootfs/etc/nginx:/etc/nginx:ro" \
+            -v "$PWD/csp/csp.conf:/etc/nginx/snippets/csp.conf:ro" \
+            -v "$PWD/zugriff:/run/nginx" \
+            -v "$PWD/www:/var/www/einsatzauftrag:ro" \
+            nginx:alpine nginx -t
