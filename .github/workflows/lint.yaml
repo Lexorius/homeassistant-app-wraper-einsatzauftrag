@@ -46,12 +46,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Konfiguration mit nginx -t prüfen
         run: |
-          mkdir -p csp zugriff www
-          echo 'add_header Content-Security-Policy "default-src '"'"'self'"'"'" always;' > csp/csp.conf
+          # Konfiguration kopieren und die beiden zur Bau-/Laufzeit erzeugten Dateien ergänzen.
+          cp -r einsatzauftrag/rootfs/etc/nginx nginx-test
+          echo 'add_header Content-Security-Policy "default-src '"'"'self'"'"'" always;' > nginx-test/snippets/csp.conf
+          mkdir -p zugriff www
           echo "allow all;" > zugriff/zugriff.conf
           docker run --rm \
-            -v "$PWD/einsatzauftrag/rootfs/etc/nginx:/etc/nginx:ro" \
-            -v "$PWD/csp/csp.conf:/etc/nginx/snippets/csp.conf:ro" \
+            -v "$PWD/nginx-test:/etc/nginx:ro" \
             -v "$PWD/zugriff:/run/nginx" \
             -v "$PWD/www:/var/www/einsatzauftrag:ro" \
             nginx:alpine nginx -t

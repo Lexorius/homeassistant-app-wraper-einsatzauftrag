@@ -85,7 +85,7 @@ RUN chmod +x /run.sh \
 EXPOSE 8099
 
 HEALTHCHECK --interval=60s --timeout=5s --start-period=10s \
-    CMD wget -q -O /dev/null http://127.0.0.1:8099/ || exit 1
+    CMD [ "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8099/" ]
 
 CMD [ "/run.sh" ]
 
