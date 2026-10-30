@@ -30,6 +30,8 @@ on:
 env:
   APP_DIR: einsatzauftrag
   IMAGE_NAME: app-einsatzauftrag
+  # Registry-Pfade müssen kleingeschrieben sein; github.repository_owner wäre „Lexorius“.
+  REGISTRY_PREFIX: ghcr.io/lexorius
 
 permissions:
   contents: read
@@ -71,6 +73,7 @@ jobs:
         with:
           architectures: ${{ steps.info.outputs.architectures }}
           image-name: ${{ env.IMAGE_NAME }}
+          registry-prefix: ${{ env.REGISTRY_PREFIX }}
 
   build:
     name: Bauen ${{ matrix.arch }}
@@ -127,6 +130,7 @@ jobs:
         with:
           architectures: ${{ needs.init.outputs.architectures }}
           image-name: ${{ env.IMAGE_NAME }}
+          registry-prefix: ${{ env.REGISTRY_PREFIX }}
           image-tags: |
             ${{ needs.init.outputs.version }}
             latest

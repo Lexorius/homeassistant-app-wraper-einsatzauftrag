@@ -79,7 +79,7 @@ docker build --build-arg EINSATZAUFTRAG_REF=v1.0.0 -t einsatzauftrag einsatzauft
 repository.yaml               Add-on-Repository für Home Assistant
 docker-compose.yml            Standalone-Betrieb
 einsatzauftrag/
-├── config.yaml               App-Metadaten, Ingress, Seitenleisten-Panel, Watchdog
+├── config.yaml               App-Metadaten, Ingress, Seitenleisten-Panel
 ├── Dockerfile                Stufe 1: Clone + Vite-Build, Stufe 2: nginx
 ├── zaehler-entfernen.mjs     Entfernt den Analytics-Zähler aus dem Build
 ├── rootfs/

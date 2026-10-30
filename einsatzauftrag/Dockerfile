@@ -51,6 +51,7 @@ RUN if [ "${ENTFERNE_ZAEHLER}" = "true" ]; then \
 # ---------------------------------------------------------------------------
 # Stufe 2: Auslieferung mit nginx
 # ---------------------------------------------------------------------------
+# hadolint ignore=DL3006
 FROM ${BUILD_FROM}
 
 RUN apk add --no-cache nginx \

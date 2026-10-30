@@ -12,7 +12,7 @@ stehen im [Original-Repository](https://github.com/wattnpapa/einsatzauftrag).
   baut die Web-App mit Vite und liefert sie mit nginx auf dem Home-Assistant-Basisimage
   (`ghcr.io/home-assistant/base:3.23`, Alpine) aus.
 - Ingress mit Eintrag in der Seitenleiste (`panel_title: Einsatzauftrag`), kein Port nach
-  außen, Watchdog auf den nginx-Port.
+  außen, Docker-HEALTHCHECK auf den nginx-Port.
 - Zugriff auf nginx im Home-Assistant-Betrieb auf den Ingress-Proxy des Supervisors
   beschränkt; standalone per `docker run` offen.
 - Externer Besucherzähler (GoatCounter) wird beim Bau aus `index.html` entfernt
