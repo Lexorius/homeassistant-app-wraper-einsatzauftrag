@@ -1,0 +1,16 @@
+# Standalone-Betrieb ohne Home Assistant:
+#   docker compose up --build
+#   → http://localhost:8099/
+services:
+  einsatzauftrag:
+    build:
+      context: ./einsatzauftrag
+      args:
+        # Stand der App, der gebaut wird (Branch, Tag oder Commit).
+        EINSATZAUFTRAG_REF: main
+        ENTFERNE_ZAEHLER: "true"
+    image: einsatzauftrag:local
+    container_name: einsatzauftrag
+    restart: unless-stopped
+    ports:
+      - "8099:8099"

@@ -1,0 +1,158 @@
+# Baut das App-Image für amd64 und aarch64 mit den Home-Assistant-Builder-Actions
+# (Docker BuildKit), signiert es mit Cosign und veröffentlicht es als
+# Multi-Arch-Manifest auf GHCR: ghcr.io/lexorius/app-einsatzauftrag:<version>
+#
+# Die App-Quellen holt das Dockerfile beim Bau aus dem Original-Repository
+# wattnpapa/einsatzauftrag – hier liegt nur die Verpackung.
+#
+# Veröffentlicht wird nur, wenn der Versions-Tag aus config.yaml noch nicht
+# existiert (skip-existing). Für ein Update also die Version erhöhen.
+name: Add-on bauen
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - "einsatzauftrag/**"
+      - ".github/workflows/builder.yaml"
+  pull_request:
+    paths:
+      - "einsatzauftrag/**"
+      - ".github/workflows/builder.yaml"
+  workflow_dispatch:
+    inputs:
+      einsatzauftrag_ref:
+        description: "Branch, Tag oder Commit von wattnpapa/einsatzauftrag (leer = Standard aus Dockerfile)"
+        required: false
+        default: ""
+
+env:
+  APP_DIR: einsatzauftrag
+  IMAGE_NAME: app-einsatzauftrag
+
+permissions:
+  contents: read
+
+jobs:
+  init:
+    name: Build vorbereiten
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      architectures: ${{ steps.info.outputs.architectures }}
+      version: ${{ steps.info.outputs.version }}
+      publish: ${{ steps.info.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: config.yaml auswerten
+        id: info
+        run: |
+          version=$(yq '.version' "${APP_DIR}/config.yaml")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "architectures=$(yq -o=json -I=0 '.arch' "${APP_DIR}/config.yaml")" >> "$GITHUB_OUTPUT"
+
+          # Bei einem Tag muss die Version in config.yaml zum Tag passen.
+          if [[ "${GITHUB_REF}" == refs/tags/v* && "${GITHUB_REF#refs/tags/v}" != "${version}" ]]; then
+            echo "::error::Tag ${GITHUB_REF#refs/tags/} passt nicht zur Version ${version} in config.yaml"
+            exit 1
+          fi
+
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build-Matrix erzeugen
+        id: matrix
+        uses: home-assistant/builder/actions/prepare-multi-arch-matrix@2026.09.0
+        with:
+          architectures: ${{ steps.info.outputs.architectures }}
+          image-name: ${{ env.IMAGE_NAME }}
+
+  build:
+    name: Bauen ${{ matrix.arch }}
+    needs: init
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write   # Cosign-Signatur
+      packages: write   # Push nach GHCR
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.init.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build-Argumente zusammenstellen
+        id: args
+        env:
+          UPSTREAM_REF: ${{ github.event.inputs.einsatzauftrag_ref }}
+        run: |
+          {
+            echo "build_args<<EOF"
+            if [[ -n "${UPSTREAM_REF}" ]]; then
+              echo "EINSATZAUFTRAG_REF=${UPSTREAM_REF}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Image bauen (${{ matrix.arch }})
+        uses: home-assistant/builder/actions/build-image@2026.09.0
+        with:
+          arch: ${{ matrix.arch }}
+          context: ${{ env.APP_DIR }}
+          image: ${{ matrix.image }}
+          image-tags: |
+            ${{ needs.init.outputs.version }}
+            latest
+          version: ${{ needs.init.outputs.version }}
+          build-args: ${{ steps.args.outputs.build_args }}
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          push: ${{ needs.init.outputs.publish }}
+          skip-existing: ${{ needs.init.outputs.version }}
+
+  manifest:
+    name: Multi-Arch-Manifest veröffentlichen
+    needs: [init, build]
+    if: needs.init.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      packages: write
+    steps:
+      - uses: home-assistant/builder/actions/publish-multi-arch-manifest@2026.09.0
+        with:
+          architectures: ${{ needs.init.outputs.architectures }}
+          image-name: ${{ env.IMAGE_NAME }}
+          image-tags: |
+            ${{ needs.init.outputs.version }}
+            latest
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          skip-existing: ${{ needs.init.outputs.version }}
+
+  release:
+    name: GitHub-Release anlegen
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [init, manifest]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Release-Notizen aus CHANGELOG.md ziehen
+        run: |
+          VERSION="${{ needs.init.outputs.version }}"
+          awk -v v="$VERSION" '
+            $0 ~ "^## " { if (found) exit; if (index($0, v)) { found=1; next } }
+            found { print }
+          ' "${APP_DIR}/CHANGELOG.md" > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::error::Kein CHANGELOG-Abschnitt für Version $VERSION gefunden."
+            exit 1
+          fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: notes.md

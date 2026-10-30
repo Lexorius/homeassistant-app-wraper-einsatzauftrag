@@ -1,0 +1,9 @@
+# Shell-Skripte und Konfigurationen landen in Linux-Containern: immer LF.
+* text=auto eol=lf
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.conf text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.mjs text eol=lf
+*.png binary

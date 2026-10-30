@@ -1,0 +1,9 @@
+# Lokale Build-Reste
+dist/
+*.log
+
+# Editoren / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

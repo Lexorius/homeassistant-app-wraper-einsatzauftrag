@@ -1,0 +1,37 @@
+# Prüft die Add-on-Konfiguration (config.yaml, build.yaml) und die Shell-Skripte.
+name: Prüfen
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  addon-lint:
+    name: Add-on-Linter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: frenck/action-addon-linter@v2
+        with:
+          path: ./einsatzauftrag
+
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck einsatzauftrag/rootfs/run.sh
+
+  hadolint:
+    name: Hadolint (Dockerfile)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: einsatzauftrag/Dockerfile
+          # DL3018: apk-Pakete ohne feste Version – Basisimage ist versioniert, das reicht hier.
+          # DL3029: --platform in FROM ist hier Absicht (Build-Stufe nativ, Ergebnis statisch).
+          ignore: DL3018,DL3029
