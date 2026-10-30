@@ -114,11 +114,11 @@ ausgeliefert werden, genügt also eine Versionserhöhung: Der Build holt sich be
 immer den aktuellen Stand von `main`. Über **Actions → Add-on bauen → Run workflow** lässt
 sich auch gezielt ein anderer Branch/Tag der App bauen.
 
-> **Einmalig nach dem ersten Build:** GHCR legt neue Pakete *privat* an. Damit Home Assistant
-> das Image ziehen kann, muss das Paket `app-einsatzauftrag` unter
-> <https://github.com/Lexorius?tab=packages> → *Package settings* → *Change visibility*
-> auf **Public** gestellt werden (die Pakete `amd64-app-einsatzauftrag` und
-> `aarch64-app-einsatzauftrag` sind Zwischenstufen und können privat bleiben).
+> **Falls Home Assistant beim Installieren `error from registry: denied` meldet:** Entweder
+> läuft der Build für die neue Version noch (Actions-Tab prüfen), oder das GHCR-Paket ist
+> nicht öffentlich. Pakete, die ein Workflow dieses öffentlichen Repos anlegt, erben dessen
+> Sichtbarkeit; sonst unter <https://github.com/Lexorius?tab=packages> →
+> `app-einsatzauftrag` → *Package settings* → *Change visibility* → **Public** setzen.
 > Alternativ `image:` in `config.yaml` auskommentieren, dann baut der Supervisor das Image
 > lokal auf dem Home-Assistant-Host (dauert auf einem Raspberry Pi einige Minuten).
 
