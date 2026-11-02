@@ -28,7 +28,7 @@ ARG BUILD_FROM=ghcr.io/home-assistant/base:3.23
 # Das Ergebnis ist reines HTML/JS/CSS und damit architekturunabhängig, deshalb
 # läuft diese Stufe immer nativ auf der Build-Plattform (kein QEMU).
 # ---------------------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM node:22-alpine AS build
+FROM --platform=$BUILDPLATFORM node:26-alpine AS build
 
 # Quelle der App. REF kann ein Branch, Tag oder Commit sein.
 ARG EINSATZAUFTRAG_REPO=https://github.com/wattnpapa/einsatzauftrag.git
